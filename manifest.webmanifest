@@ -1,7 +1,7 @@
 {
-  "name": "OmniVoice 2 Mobile AUTO",
+  "name": "OmniVoice 2 Mobile",
   "short_name": "OmniVoice 2",
-  "description": "OmniVoice 2: voice1 i voice2, lokalni TTS preko Tailscale-a sa Modal cloud fallback-om.",
+  "description": "OmniVoice 2: voice1 i voice2, sa sačuvanim AUTO ili SAMO MODAL routing režimom.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

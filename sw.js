@@ -1,4 +1,4 @@
-const CACHE = "omnivoice2-github-auto-v8";
+const CACHE = "omnivoice2-github-auto-v9";
 const SHELL = ["./", "./index.html", "./manifest.webmanifest", "./icon.svg"];
 
 self.addEventListener("install", event => {

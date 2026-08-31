@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="OmniVoice 2">
-<title>OmniVoice 2 Mobile AUTO</title>
+<title>OmniVoice 2 Mobile</title>
 <link rel="manifest" href="./manifest.webmanifest">
 <link rel="icon" type="image/svg+xml" href="./icon.svg">
 <style>
@@ -61,7 +61,8 @@ input[type=range]{width:100%;accent-color:var(--accent)}
 .empty{padding:20px;text-align:center;color:var(--subtle);font-size:12px}
 .diag{white-space:pre-wrap;overflow-wrap:anywhere;background:#0d1016;border-radius:13px;border:1px solid #202633;padding:12px;font:11px/1.48 ui-monospace,SFMono-Regular,Consolas,monospace;color:#d7dce5;max-height:390px;overflow:auto}
 .row{display:flex;gap:8px;align-items:center}.row>*{flex:1}
-.setting{margin-bottom:12px}.setting label{display:block;font-size:10px;color:var(--muted);font-weight:800;margin-bottom:6px}.setting input{width:100%;background:#0e1016;border:1px solid #252c39;color:var(--text);border-radius:12px;padding:12px;outline:none}
+.setting{margin-bottom:12px}.setting label{display:block;font-size:10px;color:var(--muted);font-weight:800;margin-bottom:6px}.setting input,.setting select{width:100%;background:#0e1016;border:1px solid #252c39;color:var(--text);border-radius:12px;padding:12px;outline:none}
+.setting select{appearance:none;background-image:linear-gradient(45deg,transparent 50%,var(--muted) 50%),linear-gradient(135deg,var(--muted) 50%,transparent 50%);background-position:calc(100% - 18px) 17px,calc(100% - 12px) 17px;background-size:6px 6px,6px 6px;background-repeat:no-repeat;padding-right:38px}
 .actions{display:flex;gap:8px;flex-wrap:wrap}.action{padding:11px 12px;border-radius:11px;background:var(--panel3);color:var(--text);font-weight:800;font-size:12px}.action.primary{background:var(--accent);color:#17100a}.action.danger{background:#2a1416;color:var(--bad)}
 .modal{position:fixed;inset:0;background:#000b;backdrop-filter:blur(12px);z-index:100;display:none;align-items:flex-end;justify-content:center}.modal.show{display:flex}.sheet{width:100%;max-width:720px;background:#12151c;border:1px solid var(--border);border-radius:24px 24px 0 0;padding:18px 16px calc(22px + var(--safe-bottom));max-height:88vh;overflow:auto}
 .sheet h2{margin:0 0 4px;font-size:20px}.sheet p{margin:0 0 16px;color:var(--muted);font-size:12px;line-height:1.45}
@@ -79,7 +80,7 @@ details summary{cursor:pointer;color:var(--muted);font-size:12px;font-weight:800
   <header class="header">
     <div class="logo">O</div>
     <div class="brand">
-      <h1>OmniVoice 2 Mobile AUTO</h1>
+      <h1>OmniVoice 2 Mobile</h1>
       <small id="endpointLabel">AUTO • LOCAL ≤90 / MODAL • WEB AUDIO &gt;90</small>
     </div>
     <span class="badge" id="headerBadge">● READY</span>
@@ -178,7 +179,15 @@ details summary{cursor:pointer;color:var(--muted);font-size:12px;font-weight:800
 <div class="modal" id="settingsModal">
   <div class="sheet">
     <h2>Podešavanja</h2>
-    <p>Do 90 slova/brojeva ide na tvoj UM790 Pro preko Tailscale-a. Preko 90 ide direktno na Modal. Ako LOCAL nije dostupan, zahtev automatski pada na Modal.</p>
+    <p id="settingsIntro">Do 90 slova/brojeva ide na tvoj UM790 Pro preko Tailscale-a. Preko 90 ide direktno na Modal. Ako LOCAL nije dostupan, zahtev automatski pada na Modal.</p>
+
+    <div class="setting">
+      <label>NAČIN GENERISANJA</label>
+      <select id="routingModeInput" aria-label="Način generisanja">
+        <option value="auto">AUTO — LOCAL do 90, zatim Modal</option>
+        <option value="modal_only">SAMO MODAL — svaki zahtev preko clouda</option>
+      </select>
+    </div>
 
     <div class="setting">
       <label>LOCAL TTS URL • TAILSCALE</label>
@@ -227,7 +236,7 @@ details summary{cursor:pointer;color:var(--muted);font-size:12px;font-weight:800
 <div class="toast" id="toast"></div>
 <script>
 "use strict";
-const PLAYER_BUILD="V8-VOICE1-VOICE2-CANCEL-WEBAUDIO";
+const PLAYER_BUILD="V9-PERSISTED-ROUTING-MODE-WEBAUDIO";
 
 const DEFAULT_MODAL_ENDPOINT = "https://vasilije-demonjic--omnivoice-sr-omnivoiceservice-generate.modal.run";
 const DEFAULT_LOCAL_ENDPOINT = "https://desktop-m04u452.tail03c315.ts.net";
@@ -235,12 +244,15 @@ const LOCAL_CHAR_LIMIT = 90;
 const DEFAULT_MODAL_TIMEOUT_SEC = 300;
 const DEFAULT_LOCAL_HEALTH_TIMEOUT_SEC = 5;
 const DEFAULT_LOCAL_GENERATION_TIMEOUT_SEC = 900;
+const ROUTING_AUTO = "auto";
+const ROUTING_MODAL_ONLY = "modal_only";
 
 const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
 
 const state = {
   voice: ["voice1","voice2"].includes(localStorage.getItem("ov2_voice")) ? localStorage.getItem("ov2_voice") : "voice1",
+  routingMode: localStorage.getItem("ov2_routing_mode")===ROUTING_MODAL_ONLY ? ROUTING_MODAL_ONLY : ROUTING_AUTO,
   modalEndpoint: localStorage.getItem("ov2_modal_endpoint") || DEFAULT_MODAL_ENDPOINT,
   localTtsUrl: localStorage.getItem("ov2_local_tts_url") || DEFAULT_LOCAL_ENDPOINT,
   modalTimeoutSec: +(localStorage.getItem("ov2_modal_timeout") || DEFAULT_MODAL_TIMEOUT_SEC),
@@ -264,6 +276,7 @@ const state = {
 const el = {
   endpointLabel:$("#endpointLabel"), badge:$("#headerBadge"),
   settingsBtn:$("#settingsBtn"), modal:$("#settingsModal"),
+  settingsIntro:$("#settingsIntro"), routingMode:$("#routingModeInput"), storageNotice:$("#storageNotice"), corsNotice:$("#corsNotice"),
   localTtsInput:$("#localTtsInput"), endpointInput:$("#endpointInput"),
   requestTimeout:$("#requestTimeout"), localHealthTimeout:$("#localHealthTimeout"), localGenerationTimeout:$("#localGenerationTimeout"),
   saveSettings:$("#saveSettings"), testLocal:$("#testLocal"), testApi:$("#testApi"), pickFolder:$("#pickFolder"), closeSettings:$("#closeSettings"),
@@ -329,7 +342,32 @@ function countTtsChars(text){
   const m=String(text||"").match(/[A-Za-zŠĆČŽĐšćčžđ0-9]/g);
   return m ? m.length : 0;
 }
+function isModalOnly(mode=state.routingMode){ return mode===ROUTING_MODAL_ONLY; }
+function shouldUseLocal(charCount,mode=state.routingMode){
+  return !isModalOnly(mode) && charCount<=LOCAL_CHAR_LIMIT;
+}
+function routingReadyDetail(){
+  return isModalOnly()
+    ? `SAMO MODAL: svi zahtevi idu direktno na cloud • ${PLAYER_BUILD}`
+    : `AUTO: ≤90 LOCAL→MODAL fallback, >90 MODAL • ${PLAYER_BUILD}`;
+}
+function updateSettingsRoutingCopy(mode=state.routingMode){
+  const modalOnly=isModalOnly(mode);
+  el.settingsIntro.textContent=modalOnly
+    ? "Svaki zahtev, kratak ili dug, ide direktno na Modal. Kućni računar i Tailscale se u ovom režimu uopšte ne proveravaju."
+    : "Do 90 slova/brojeva ide na tvoj UM790 Pro preko Tailscale-a. Preko 90 ide direktno na Modal. Ako LOCAL nije dostupan, zahtev automatski pada na Modal.";
+  el.storageNotice.textContent=modalOnly
+    ? "Režim SAMO MODAL čuva se u ovom browseru na ovom telefonu i ostaje uključen kada sledeći put otvoriš aplikaciju."
+    : "Režim AUTO čuva se u ovom browseru na ovom telefonu. Kratki zahtevi koriste LOCAL kada je kućni PC dostupan, a inače automatski prelaze na Modal.";
+  el.corsNotice.textContent=modalOnly
+    ? "Routing: svaki zahtev → MODAL. LOCAL health check i lokalno generisanje se potpuno preskaču."
+    : "Routing: broje se samo A-Z, a-z, ŠĆČŽĐ, šćčžđ i 0-9. 0–90 → LOCAL. 91+ → MODAL. Ako LOCAL nije dostupan, aplikacija automatski pokušava Modal.";
+}
 function updateEndpointLabel(){
+  if(isModalOnly()){
+    el.endpointLabel.textContent="SAMO MODAL • SVI ZAHTEVI PREKO CLOUD-A";
+    return;
+  }
   if(location.hostname.endsWith("github.io")){
     el.endpointLabel.textContent="GITHUB HUB • LOCAL ≤90 / MODAL FALLBACK";
   }else if(location.protocol==="https:" && /\.ts\.net$/i.test(location.hostname)){
@@ -1288,7 +1326,9 @@ async function generate(){
   const charCount=countTtsChars(text);
   const speed=+el.speed.value;
   const numStep=+el.steps.value;
-  const preferLocal=charCount<=LOCAL_CHAR_LIMIT;
+  const routingMode=state.routingMode;
+  const modalOnly=isModalOnly(routingMode);
+  const preferLocal=shouldUseLocal(charCount,routingMode);
   const selectedVoice=state.voice;
 
   const requestId=++state.requestSeq;
@@ -1317,8 +1357,9 @@ async function generate(){
         markGenerationFinished(requestId,controller.signal);
         el.gpu.textContent=`LOCAL • ${voiceLabel(selectedVoice)} • AMD Radeon 780M`;
         await finishOutput(local.blob,"LOCAL 780M",[
-          "===== AUTO ROUTER =====",
+          "===== ROUTING • AUTO =====",
           `Broj dozvoljenih znakova        : ${charCount}`,
+          `Režim                            : AUTO`,
           `Pravilo                          : ≤ ${LOCAL_CHAR_LIMIT} → LOCAL`,
           `Glas                             : ${voiceLabel(selectedVoice)}`,
           `Speed                            : ${speed.toFixed(2)}×`,
@@ -1349,9 +1390,10 @@ async function generate(){
     el.gpu.textContent=out.gpu_name ? `Modal • ${out.gpu_name}` : "Modal • L4 → A10 → T4 fallback";
 
     await finishOutput(modal.blob,routeLabel,[
-      "===== AUTO ROUTER =====",
+      modalOnly?"===== ROUTING • SAMO MODAL =====":"===== ROUTING • AUTO =====",
       `Broj dozvoljenih znakova        : ${charCount}`,
-      `Pravilo                          : ${charCount<=LOCAL_CHAR_LIMIT?`≤ ${LOCAL_CHAR_LIMIT} → LOCAL, pa fallback MODAL`:`> ${LOCAL_CHAR_LIMIT} → MODAL`}`,
+      `Režim                            : ${modalOnly?"SAMO MODAL":"AUTO"}`,
+      `Pravilo                          : ${modalOnly?"sve dužine → MODAL, bez LOCAL pokušaja":charCount<=LOCAL_CHAR_LIMIT?`≤ ${LOCAL_CHAR_LIMIT} → LOCAL, pa fallback MODAL`:`> ${LOCAL_CHAR_LIMIT} → MODAL`}`,
       `Glas                             : ${voiceLabel(selectedVoice)}`,
       `Speed                            : ${speed.toFixed(2)}×`,
       `Steps                            : ${numStep}`,
@@ -1384,6 +1426,7 @@ async function generate(){
 ${String(e?.stack||e)}
 
 Broj dozvoljenih znakova: ${charCount}
+Režim: ${modalOnly?"SAMO MODAL":"AUTO"}
 LOCAL URL: ${localBaseUrl()||"nije podešen"}
 MODAL URL: ${normalizeUrl(state.modalEndpoint,DEFAULT_MODAL_ENDPOINT)}`;
   }finally{
@@ -1404,22 +1447,26 @@ MODAL URL: ${normalizeUrl(state.modalEndpoint,DEFAULT_MODAL_ENDPOINT)}`;
 
 // ---------- settings & UI ----------
 function openSettings(first=false){
+  el.routingMode.value=state.routingMode;
+  updateSettingsRoutingCopy(state.routingMode);
   el.localTtsInput.value=state.localTtsUrl;
   el.endpointInput.value=state.modalEndpoint;
   el.requestTimeout.value=state.modalTimeoutSec;
   el.localHealthTimeout.value=state.localHealthTimeoutSec;
   el.localGenerationTimeout.value=state.localGenerationTimeoutSec;
   el.modal.classList.add("show");
-  if(first && !state.localTtsUrl) el.localTtsInput.focus();
+  if(first && !isModalOnly() && !state.localTtsUrl) el.localTtsInput.focus();
 }
 function closeSettings(){el.modal.classList.remove("show")}
 function saveSettings(){
+  state.routingMode=el.routingMode.value===ROUTING_MODAL_ONLY ? ROUTING_MODAL_ONLY : ROUTING_AUTO;
   state.localTtsUrl=normalizeUrl(el.localTtsInput.value);
   state.modalEndpoint=normalizeUrl(el.endpointInput.value,DEFAULT_MODAL_ENDPOINT);
   state.modalTimeoutSec=Math.max(30,Math.min(600,+el.requestTimeout.value||DEFAULT_MODAL_TIMEOUT_SEC));
   state.localHealthTimeoutSec=Math.max(2,Math.min(20,+el.localHealthTimeout.value||DEFAULT_LOCAL_HEALTH_TIMEOUT_SEC));
   state.localGenerationTimeoutSec=Math.max(60,Math.min(1200,+el.localGenerationTimeout.value||DEFAULT_LOCAL_GENERATION_TIMEOUT_SEC));
 
+  localStorage.setItem("ov2_routing_mode",state.routingMode);
   localStorage.setItem("ov2_local_tts_url",state.localTtsUrl);
   localStorage.setItem("ov2_modal_endpoint",state.modalEndpoint);
   localStorage.setItem("ov2_modal_timeout",state.modalTimeoutSec);
@@ -1427,8 +1474,13 @@ function saveSettings(){
   localStorage.setItem("ov2_local_generation_timeout",state.localGenerationTimeoutSec);
 
   updateEndpointLabel();
+  updateSettingsRoutingCopy(state.routingMode);
   closeSettings();
-  toast("AUTO routing podešavanja sačuvana.");
+  if(!state.busy){
+    setStatus("SPREMNO",routingReadyDetail(),"var(--good)");
+    el.timer.textContent="0.000 s";
+  }
+  toast(isModalOnly()?"Sačuvano: samo Modal.":"Sačuvano: AUTO routing.");
 }
 async function testLocal(){
   state.localTtsUrl=normalizeUrl(el.localTtsInput.value);
@@ -1467,6 +1519,7 @@ el.settingsBtn.onclick=()=>openSettings(false);
 el.closeSettings.onclick=closeSettings;
 el.modal.addEventListener("click",e=>{if(e.target===el.modal)closeSettings()});
 el.saveSettings.onclick=saveSettings;
+el.routingMode.onchange=()=>updateSettingsRoutingCopy(el.routingMode.value);
 el.testLocal.onclick=testLocal;
 el.testApi.onclick=testApi;
 el.pickFolder.onclick=chooseFolder;
@@ -1499,6 +1552,7 @@ window.addEventListener("pageshow",e=>{ if(e.persisted && waCtx) markWebAudioCon
 (async function init(){
   renderVoiceChoice();
   updateEndpointLabel();
+  updateSettingsRoutingCopy(state.routingMode);
   if(location.protocol === "https:" && /\.ts\.net$/i.test(location.hostname)){
     state.localTtsUrl = location.origin;
     localStorage.setItem("ov2_local_tts_url", state.localTtsUrl);
@@ -1512,8 +1566,8 @@ window.addEventListener("pageshow",e=>{ if(e.persisted && waCtx) markWebAudioCon
   }
   await restoreFolderHandle();
   await refreshLibrary(!!state.folderHandle);
-  setStatus("SPREMNO",`GitHub hub: ≤90 LOCAL→MODAL fallback, >90 MODAL • ${PLAYER_BUILD}`);
-  if(!state.localTtsUrl) setTimeout(()=>openSettings(true),250);
+  setStatus("SPREMNO",routingReadyDetail());
+  if(!isModalOnly() && !state.localTtsUrl) setTimeout(()=>openSettings(true),250);
 })();
 </script>
 </body>
