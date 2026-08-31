@@ -1185,7 +1185,7 @@ async function generate(){
           `LOCAL endpoint                   : ${localBaseUrl()}`,
           `GET /tts-get → WAV              : ${fmtMs(local.httpMs)}`,
           `GPU                              : AMD Radeon 780M`,
-          "Model                            : BASE_15H_3000STEPS_6144BT • checkpoint-3000"
+          `Model                            : ${selectedVoice==="zeljko" ? "ZELJKO_FINAL_INFERENCE • checkpoint-5000" : "BASE_15H_3000STEPS_6144BT • checkpoint-3000"}`
         ]);
         return;
       }catch(e){
