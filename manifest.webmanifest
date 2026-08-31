@@ -1,0 +1,19 @@
+{
+  "name": "OmniVoice 2 Mobile AUTO",
+  "short_name": "OmniVoice 2",
+  "description": "OmniVoice 2: Vasilije i Željko, lokalni TTS preko Tailscale-a sa Modal cloud fallback-om.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#090a0e",
+  "theme_color": "#0a0b0f",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
