@@ -1,7 +1,7 @@
 {
   "name": "OmniVoice 2 Mobile AUTO",
   "short_name": "OmniVoice 2",
-  "description": "OmniVoice 2: Vasilije i Željko, lokalni TTS preko Tailscale-a sa Modal cloud fallback-om.",
+  "description": "OmniVoice 2: voice1 i voice2, lokalni TTS preko Tailscale-a sa Modal cloud fallback-om.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

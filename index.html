@@ -41,8 +41,11 @@ textarea:focus{border-color:#5b3b1c;box-shadow:0 0 0 3px #ff9d2e18}
 .control{background:#10131a;border:1px solid #202633;border-radius:13px;padding:10px}
 .control-head{display:flex;justify-content:space-between;color:var(--muted);font-size:10px;font-weight:800;margin-bottom:8px}.control-head b{color:var(--text);font-family:ui-monospace,SFMono-Regular,Consolas,monospace}
 input[type=range]{width:100%;accent-color:var(--accent)}
-.generate{margin-top:13px;width:100%;padding:14px 16px;border-radius:14px;background:var(--accent);color:#17100a;font-weight:900;font-size:15px;box-shadow:0 10px 24px #ff9d2e24}
+.generate-actions{display:grid;grid-template-columns:minmax(0,1fr) 112px;gap:8px;margin-top:13px}
+.generate{width:100%;padding:14px 16px;border-radius:14px;background:var(--accent);color:#17100a;font-weight:900;font-size:15px;box-shadow:0 10px 24px #ff9d2e24}
 .generate:disabled{opacity:.55}
+.cancel-generate{border-radius:14px;background:#2a1416;color:var(--bad);font-size:13px;font-weight:900;border:1px solid #552329}
+.cancel-generate:disabled{opacity:.32;color:var(--muted);background:var(--panel2);border-color:var(--border);cursor:default}
 .status-top{display:flex;align-items:center;justify-content:space-between;gap:10px}.status-title{font-weight:900;font-size:16px}.timer{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-weight:900;color:var(--accent);font-size:19px}
 .status-detail{font-size:13px;line-height:1.38;color:#d7dbe3;margin-top:8px}
 .gpu{background:#0e1117;border:1px solid #202633;border-radius:13px;padding:11px;margin-top:12px}.gpu small{display:block;color:var(--subtle);font-size:9px;font-weight:900;letter-spacing:.12em}.gpu div{font-size:13px;font-weight:800;margin-top:4px;color:var(--muted)}
@@ -87,8 +90,8 @@ details summary{cursor:pointer;color:var(--muted);font-size:12px;font-weight:800
     <section class="card">
       <div class="eyebrow">SYNTHESIS • SR</div>
       <div class="voice-picker" role="group" aria-label="Izbor glasa">
-        <button class="voice-btn active" type="button" data-voice="vasilije">VASILIJE</button>
-        <button class="voice-btn" type="button" data-voice="zeljko">ŽELJKO</button>
+        <button class="voice-btn active" type="button" data-voice="voice1">VOICE1</button>
+        <button class="voice-btn" type="button" data-voice="voice2">VOICE2</button>
       </div>
       <textarea id="textInput">Ovo je test generisanja srpskog glasa preko OmniVoice sistema.</textarea>
       <div class="grid2">
@@ -101,7 +104,10 @@ details summary{cursor:pointer;color:var(--muted);font-size:12px;font-weight:800
           <input id="steps" type="range" min="1" max="64" step="1" value="32">
         </div>
       </div>
-      <button class="generate" id="generateBtn">GENERISI →</button>
+      <div class="generate-actions">
+        <button class="generate" id="generateBtn">GENERISI →</button>
+        <button class="cancel-generate" id="cancelGenerationBtn" disabled>STOP</button>
+      </div>
     </section>
 
     <section class="card">
@@ -221,7 +227,7 @@ details summary{cursor:pointer;color:var(--muted);font-size:12px;font-weight:800
 <div class="toast" id="toast"></div>
 <script>
 "use strict";
-const PLAYER_BUILD="V7-OMNIVOICE2-DUAL-VOICE-WEBAUDIO";
+const PLAYER_BUILD="V8-VOICE1-VOICE2-CANCEL-WEBAUDIO";
 
 const DEFAULT_MODAL_ENDPOINT = "https://vasilije-demonjic--omnivoice-sr-omnivoiceservice-generate.modal.run";
 const DEFAULT_LOCAL_ENDPOINT = "https://desktop-m04u452.tail03c315.ts.net";
@@ -234,7 +240,7 @@ const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
 
 const state = {
-  voice: ["vasilije","zeljko"].includes(localStorage.getItem("ov2_voice")) ? localStorage.getItem("ov2_voice") : "vasilije",
+  voice: ["voice1","voice2"].includes(localStorage.getItem("ov2_voice")) ? localStorage.getItem("ov2_voice") : "voice1",
   modalEndpoint: localStorage.getItem("ov2_modal_endpoint") || DEFAULT_MODAL_ENDPOINT,
   localTtsUrl: localStorage.getItem("ov2_local_tts_url") || DEFAULT_LOCAL_ENDPOINT,
   modalTimeoutSec: +(localStorage.getItem("ov2_modal_timeout") || DEFAULT_MODAL_TIMEOUT_SEC),
@@ -243,6 +249,11 @@ const state = {
   busy:false,
   requestStarted:0,
   requestSeq:0,
+  activeRequestId:0,
+  activeJobId:null,
+  activeBackend:null,
+  activeAbortController:null,
+  lastCancelledJobId:null,
   selectedId:null,
   library:[],
   folderHandle:null,
@@ -257,7 +268,7 @@ const el = {
   requestTimeout:$("#requestTimeout"), localHealthTimeout:$("#localHealthTimeout"), localGenerationTimeout:$("#localGenerationTimeout"),
   saveSettings:$("#saveSettings"), testLocal:$("#testLocal"), testApi:$("#testApi"), pickFolder:$("#pickFolder"), closeSettings:$("#closeSettings"),
   text:$("#textInput"), voiceButtons:$$('.voice-btn'), speed:$("#speed"), speedValue:$("#speedValue"), steps:$("#steps"), stepsValue:$("#stepsValue"),
-  generate:$("#generateBtn"), statusTitle:$("#statusTitle"), statusDetail:$("#statusDetail"), timer:$("#timer"), gpu:$("#gpuLine"),
+  generate:$("#generateBtn"), cancelGeneration:$("#cancelGenerationBtn"), statusTitle:$("#statusTitle"), statusDetail:$("#statusDetail"), timer:$("#timer"), gpu:$("#gpuLine"),
   seek:$("#seek"), playerTime:$("#playerTime"), trackName:$("#trackName"), trackPath:$("#trackPath"), trackDuration:$("#trackDuration"),
   play:$("#playBtn"), pause:$("#pauseBtn"), stop:$("#stopBtn"), toStart:$("#toStart"), toEnd:$("#toEnd"),
   fileList:$("#fileList"), libCount:$("#libCount"), refresh:$("#refreshBtn"), folder:$("#folderBtn"), saveWav:$("#saveWavBtn"), importBtn:$("#importBtn"), fileImport:$("#fileImport"),
@@ -275,7 +286,7 @@ function toast(msg){
   el.toast.textContent=msg; el.toast.classList.add("show");
   clearTimeout(toast._t); toast._t=setTimeout(()=>el.toast.classList.remove("show"),2200);
 }
-function voiceLabel(voice=state.voice){ return voice==="zeljko" ? "Željko" : "Vasilije"; }
+function voiceLabel(voice=state.voice){ return voice==="voice2" ? "voice2" : "voice1"; }
 function renderVoiceChoice(){
   el.voiceButtons.forEach(button=>{
     const active=button.dataset.voice===state.voice;
@@ -284,7 +295,7 @@ function renderVoiceChoice(){
   });
 }
 function selectVoice(voice){
-  if(!["vasilije","zeljko"].includes(voice) || state.busy) return;
+  if(!["voice1","voice2"].includes(voice) || state.busy) return;
   state.voice=voice;
   localStorage.setItem("ov2_voice",voice);
   renderVoiceChoice();
@@ -295,6 +306,7 @@ function setStatus(title,detail,color=""){
   el.statusDetail.textContent=detail;
   el.statusTitle.style.color=color||"";
   if(title==="GOTOVO"){ el.badge.textContent="● DONE"; el.badge.style.color="var(--good)"; el.badge.style.background="#10251a"; }
+  else if(title==="PREKINUTO"){ el.badge.textContent="● STOPPED"; el.badge.style.color="var(--bad)"; el.badge.style.background="#2a1416"; }
   else if(title.includes("GREŠ")||title.includes("FALLBACK")){ el.badge.textContent="● ATTENTION"; el.badge.style.color="var(--bad)"; el.badge.style.background="#2a1416"; }
   else if(title==="SPREMNO"){ el.badge.textContent="● READY"; el.badge.style.color="var(--good)"; el.badge.style.background="#10251a"; }
   else { el.badge.textContent="● LIVE"; el.badge.style.color="var(--accent)"; el.badge.style.background="#2a2015"; }
@@ -331,21 +343,68 @@ function decodeB64(b64){
   for(let i=0;i<bin.length;i++)bytes[i]=bin.charCodeAt(i);
   return new Blob([bytes],{type:"audio/wav"});
 }
-async function fetchWithTimeout(url,opts={},timeoutMs=30000){
+function generationAbortError(){
+  const error=new Error("Generisanje je prekinuto.");
+  error.name="AbortError";
+  return error;
+}
+function newJobId(){
+  return crypto.randomUUID?.() || `ov2-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+function throwIfStopped(signal){
+  if(signal?.aborted) throw generationAbortError();
+}
+const fetchResponseMeta=new WeakMap();
+function translateFetchError(error,meta){
+  if(meta?.timedOut()){
+    const timeoutError=new Error("Zahtev je istekao (timeout).");
+    timeoutError.name="TimeoutError";
+    return timeoutError;
+  }
+  if(meta?.externalSignal?.aborted) return generationAbortError();
+  return error;
+}
+async function fetchWithTimeout(url,opts={},timeoutMs=30000,externalSignal=null){
+  throwIfStopped(externalSignal);
   const ctl=new AbortController();
-  const t=setTimeout(()=>ctl.abort(),timeoutMs);
-  try{
-    return await fetch(url,{...opts,signal:ctl.signal,mode:"cors",cache:"no-store",redirect:"follow"});
-  } finally {
+  let timedOut=false;
+  const stop=()=>ctl.abort();
+  externalSignal?.addEventListener("abort",stop,{once:true});
+  const t=setTimeout(()=>{timedOut=true;ctl.abort();},timeoutMs);
+  const cleanup=()=>{
     clearTimeout(t);
+    externalSignal?.removeEventListener("abort",stop);
+  };
+  const meta={cleanup,timedOut:()=>timedOut,externalSignal};
+  try{
+    const response=await fetch(url,{...opts,signal:ctl.signal,mode:"cors",cache:"no-store",redirect:"follow"});
+    // Keep the timeout and external STOP signal alive until the response BODY
+    // is consumed. Large base64/WAV downloads must remain interruptible even
+    // after their HTTP headers have already arrived.
+    fetchResponseMeta.set(response,meta);
+    return response;
+  } catch(e) {
+    cleanup();
+    throw translateFetchError(e,meta);
   }
 }
-async function fetchJson(url,opts={},timeoutMs=30000){
+async function readFetchBody(response,method){
+  const meta=fetchResponseMeta.get(response);
+  try{
+    return await response[method]();
+  }catch(e){
+    throw translateFetchError(e,meta);
+  }finally{
+    meta?.cleanup();
+    fetchResponseMeta.delete(response);
+  }
+}
+async function fetchJson(url,opts={},timeoutMs=30000,externalSignal=null){
   const r=await fetchWithTimeout(url,{
     ...opts,
     headers:{"Content-Type":"application/json","Accept":"application/json",...(opts.headers||{})}
-  },timeoutMs);
-  const txt=await r.text();
+  },timeoutMs,externalSignal);
+  const txt=await readFetchBody(r,"text");
   let data=null;
   try{ data=txt?JSON.parse(txt):{}; }catch{ data=txt; }
   if(!r.ok){
@@ -1047,7 +1106,7 @@ el.seek.addEventListener("input",()=>{el.playerTime.textContent=`${fmtClock(+el.
 el.seek.addEventListener("change",async()=>{await seekWebAudio(+el.seek.value);});
 
 // ---------- LOCAL + MODAL routing ----------
-async function localHealth(){
+async function localHealth(signal=null){
   const base=localBaseUrl();
   if(!base) throw new Error("LOCAL TTS URL nije podešen.");
 
@@ -1056,20 +1115,23 @@ async function localHealth(){
   const r=await fetchWithTimeout(
     `${base}/health`,
     {method:"GET",headers:{"Accept":"application/json"},targetAddressSpace:"local"},
-    Math.max(2000,state.localHealthTimeoutSec*1000)
+    Math.max(2000,state.localHealthTimeoutSec*1000),
+    signal
   );
+  const data=await readFetchBody(r,"json");
   if(!r.ok) throw new Error(`LOCAL health HTTP ${r.status}`);
-  return await r.json();
+  return data;
 }
 
-async function runLocal(text,speed,numStep,charCount){
+async function runLocal(text,voice,speed,numStep,charCount,requestId,signal){
   const base=localBaseUrl();
   if(!base) throw new Error("LOCAL TTS URL nije podešen.");
 
   setStatus("LOCAL CHECK",`Proveravam UM790 Pro preko Tailscale-a • ${charCount}/${LOCAL_CHAR_LIMIT} znakova`,"var(--accent)");
   el.gpu.textContent="LOCAL • Tailscale • AMD Radeon 780M";
 
-  await localHealth();
+  await localHealth(signal);
+  throwIfStopped(signal);
 
   setStatus("LOCAL 780M",`Lokalno generisanje • speed ${speed.toFixed(2)}× • ${numStep} steps`,"var(--good)");
   const start=performance.now();
@@ -1079,29 +1141,31 @@ async function runLocal(text,speed,numStep,charCount){
   // preflight that Android Chrome can block for private/Tailscale addresses.
   const q=new URLSearchParams({
     text,
-    voice:state.voice,
+    voice,
     speed:String(speed),
     num_step:String(numStep),
-    _rid:crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`
+    request_id:requestId
   });
   const r=await fetchWithTimeout(
     `${base}/tts-get?${q.toString()}`,
     {method:"GET",headers:{"Accept":"audio/wav"},targetAddressSpace:"local"},
-    Math.max(60000,state.localGenerationTimeoutSec*1000)
+    Math.max(60000,state.localGenerationTimeoutSec*1000),
+    signal
   );
 
   if(!r.ok){
-    const body=await r.text().catch(()=> "");
+    const body=await readFetchBody(r,"text").catch(()=> "");
     throw new Error(`LOCAL HTTP ${r.status}${body?`: ${body}`:""}`);
   }
 
-  const blob=await r.blob();
+  const blob=await readFetchBody(r,"blob");
+  throwIfStopped(signal);
   if(!blob.size) throw new Error("LOCAL je vratio prazan WAV.");
 
   return {blob,httpMs:performance.now()-start};
 }
 
-async function runModal(text,speed,numStep){
+async function runModal(text,voice,speed,numStep,requestId,signal){
   const endpoint=normalizeUrl(state.modalEndpoint,DEFAULT_MODAL_ENDPOINT);
   setStatus("MODAL",`Cloud generisanje • speed ${speed.toFixed(2)}× • ${numStep} steps`,"var(--accent)");
   el.gpu.textContent="MODAL • L4 → A10 → T4 fallback";
@@ -1109,14 +1173,16 @@ async function runModal(text,speed,numStep){
   const start=performance.now();
   const out=await fetchJson(
     endpoint,
-    {method:"POST",body:JSON.stringify({text,voice:state.voice,speed,num_step:numStep})},
-    Math.max(30000,state.modalTimeoutSec*1000)
+    {method:"POST",body:JSON.stringify({text,voice,speed,num_step:numStep,request_id:requestId})},
+    Math.max(30000,state.modalTimeoutSec*1000),
+    signal
   );
   const httpMs=performance.now()-start;
 
   if(out?.error) throw new Error(String(out.error));
   if(!out?.audio_base64) throw new Error("Modal odgovor nema audio_base64.");
 
+  throwIfStopped(signal);
   return {blob:decodeB64(out.audio_base64),out,httpMs};
 }
 
@@ -1147,6 +1213,72 @@ async function finishOutput(blob,route,diagLines){
   switchPage("Player");
 }
 
+async function requestBackendCancel(requestId,backend){
+  if(!requestId || !backend) return false;
+  try{
+    if(backend==="local"){
+      const q=new URLSearchParams({request_id:requestId});
+      const response=await fetchWithTimeout(
+        `${localBaseUrl()}/cancel-get?${q.toString()}`,
+        {method:"GET",headers:{"Accept":"application/json"},targetAddressSpace:"local"},
+        8000
+      );
+      await readFetchBody(response,"text");
+      if(!response.ok) throw new Error(`LOCAL cancel HTTP ${response.status}`);
+      return true;
+    }
+    if(backend==="modal"){
+      const endpoint=normalizeUrl(state.modalEndpoint,DEFAULT_MODAL_ENDPOINT);
+      await fetchJson(
+        `${endpoint}/cancel`,
+        {method:"POST",body:JSON.stringify({request_id:requestId})},
+        15000
+      );
+      return true;
+    }
+  }catch(e){
+    console.warn("Backend cancel:",e);
+    return false;
+  }
+  return false;
+}
+
+function cancelGeneration(){
+  if(!state.busy || !state.activeAbortController) return;
+  const elapsed=state.requestStarted ? performance.now()-state.requestStarted : 0;
+  const jobId=state.activeJobId;
+  const backend=state.activeBackend;
+  state.lastCancelledJobId=jobId;
+  state.activeAbortController.abort();
+  void requestBackendCancel(jobId,backend).then(confirmed=>{
+    if(state.lastCancelledJobId!==jobId || el.statusTitle.textContent!=="PREKINUTO") return;
+    el.statusDetail.textContent=confirmed
+      ? "Generisanje je prekinuto i backend je potvrdio STOP. Rezultat nije sačuvan."
+      : "Browser zahtev je prekinut i rezultat neće biti sačuvan. Serverska STOP potvrda nije stigla.";
+    el.diag.textContent += `\nBackend STOP                     : ${confirmed?"potvrđen":"bez potvrde"}`;
+  });
+  el.cancelGeneration.disabled=true;
+  el.cancelGeneration.textContent="PREKIDAM…";
+  setStatus("PREKINUTO","Prekid je poslat. Rezultat neće biti sačuvan.","var(--bad)");
+  el.timer.textContent=`${(elapsed/1000).toFixed(3)} s`;
+  el.diag.textContent=[
+    "===== ZAHTEV PREKINUT =====",
+    `Glas                             : ${voiceLabel()}`,
+    `Ruta                             : ${(backend||"zahtev").toUpperCase()}`,
+    `Proteklo                         : ${fmtMs(elapsed)}`,
+    "Rezultat                         : odbačen i neće biti dodat u biblioteku"
+  ].join("\n");
+  toast("Generisanje je prekinuto.");
+}
+
+function markGenerationFinished(requestId,signal){
+  throwIfStopped(signal);
+  if(state.activeRequestId!==requestId) throw generationAbortError();
+  state.activeAbortController=null;
+  el.cancelGeneration.disabled=true;
+  el.cancelGeneration.textContent="GOTOVO";
+}
+
 async function generate(){
   if(state.busy)return;
 
@@ -1159,10 +1291,19 @@ async function generate(){
   const preferLocal=charCount<=LOCAL_CHAR_LIMIT;
   const selectedVoice=state.voice;
 
+  const requestId=++state.requestSeq;
+  const jobId=newJobId();
+  const controller=new AbortController();
   state.busy=true;
-  state.requestSeq++;
+  state.lastCancelledJobId=null;
+  state.activeRequestId=requestId;
+  state.activeJobId=jobId;
+  state.activeBackend=preferLocal?"local":"modal";
+  state.activeAbortController=controller;
   el.generate.disabled=true;
   el.generate.textContent="GENERISANJE...";
+  el.cancelGeneration.disabled=false;
+  el.cancelGeneration.textContent="STOP";
   el.diag.textContent="Zahtev je u toku…";
   state.requestStarted=performance.now();
 
@@ -1171,7 +1312,9 @@ async function generate(){
   try{
     if(preferLocal){
       try{
-        const local=await runLocal(text,speed,numStep,charCount);
+        const local=await runLocal(text,selectedVoice,speed,numStep,charCount,jobId,controller.signal);
+        throwIfStopped(controller.signal);
+        markGenerationFinished(requestId,controller.signal);
         el.gpu.textContent=`LOCAL • ${voiceLabel(selectedVoice)} • AMD Radeon 780M`;
         await finishOutput(local.blob,"LOCAL 780M",[
           "===== AUTO ROUTER =====",
@@ -1185,17 +1328,21 @@ async function generate(){
           `LOCAL endpoint                   : ${localBaseUrl()}`,
           `GET /tts-get → WAV              : ${fmtMs(local.httpMs)}`,
           `GPU                              : AMD Radeon 780M`,
-          `Model                            : ${selectedVoice==="zeljko" ? "ZELJKO_FINAL_INFERENCE • checkpoint-5000" : "BASE_15H_3000STEPS_6144BT • checkpoint-3000"}`
+          `Model                            : ${selectedVoice==="voice2" ? "VOICE2 • final checkpoint" : "VOICE1 • final checkpoint"}`
         ]);
         return;
       }catch(e){
+        if(controller.signal.aborted || e?.name==="AbortError") throw generationAbortError();
         localError=e;
         setStatus("LOCAL FALLBACK",`LOCAL nije dostupan (${String(e?.message||e)}). Prebacujem isti zahtev na Modal…`,"var(--bad)");
         el.gpu.textContent=`LOCAL nije dostupan → MODAL • ${voiceLabel(selectedVoice)}`;
       }
     }
 
-    const modal=await runModal(text,speed,numStep);
+    state.activeBackend="modal";
+    const modal=await runModal(text,selectedVoice,speed,numStep,jobId,controller.signal);
+    throwIfStopped(controller.signal);
+    markGenerationFinished(requestId,controller.signal);
     const out=modal.out||{};
     const t=out.timings_ms||{};
     const routeLabel=preferLocal ? "MODAL FALLBACK" : "MODAL";
@@ -1223,7 +1370,14 @@ async function generate(){
       `Sample rate                     : ${out.sample_rate||"—"} Hz`
     ]);
   }catch(e){
-    const msg=e?.name==="AbortError" ? "Zahtev je istekao (timeout)." : String(e?.message||e);
+    if(controller.signal.aborted || e?.name==="AbortError"){
+      if(state.activeRequestId===requestId && el.statusTitle.textContent!=="PREKINUTO"){
+        setStatus("PREKINUTO","Aktivni zahtev je zaustavljen. Njegov rezultat neće biti sačuvan.","var(--bad)");
+        el.diag.textContent="Generisanje je prekinuto. Zakašnjeli odgovor je odbačen.";
+      }
+      return;
+    }
+    const msg=String(e?.message||e);
     setStatus("GREŠKA",msg,"var(--bad)");
     el.diag.textContent=`GREŠKA
 
@@ -1233,10 +1387,18 @@ Broj dozvoljenih znakova: ${charCount}
 LOCAL URL: ${localBaseUrl()||"nije podešen"}
 MODAL URL: ${normalizeUrl(state.modalEndpoint,DEFAULT_MODAL_ENDPOINT)}`;
   }finally{
-    state.busy=false;
-    state.requestStarted=0;
-    el.generate.disabled=false;
-    el.generate.textContent="GENERISI →";
+    if(state.activeRequestId===requestId){
+      state.busy=false;
+      state.requestStarted=0;
+      state.activeRequestId=0;
+      state.activeJobId=null;
+      state.activeBackend=null;
+      state.activeAbortController=null;
+      el.generate.disabled=false;
+      el.generate.textContent="GENERISI →";
+      el.cancelGeneration.disabled=true;
+      el.cancelGeneration.textContent="STOP";
+    }
   }
 }
 
@@ -1312,6 +1474,7 @@ el.voiceButtons.forEach(button=>button.onclick=()=>selectVoice(button.dataset.vo
 el.speed.oninput=()=>el.speedValue.textContent=`${(+el.speed.value).toFixed(2)}×`;
 el.steps.oninput=()=>el.stepsValue.textContent=String(+el.steps.value);
 el.generate.onclick=generate;
+el.cancelGeneration.onclick=cancelGeneration;
 el.folder.onclick=async()=>{await ensureFolderPermissionFromButton();};
 el.saveWav.onclick=saveCurrentExplicit;
 el.refresh.onclick=()=>refreshLibrary(true);
